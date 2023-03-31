@@ -3,12 +3,25 @@ library(tidymodels)
 library(themis)
 library(FFTrees)
 
-df <- read_rds("cimp.rds") %>% 
-  mutate(subtype = fct_recode(subtype, "TRUE" = "CIMP", "FALSE" = "noCIMP")) %>% 
-  select(subtype, 1:101) %>% select(-rowname)
+df <- read_rds("~/Desktop/R/quatro/lecture_statistics/cimp.rds") %>% relocate(subtype, .after = rowname)
+df <- df %>% pivot_longer(-c(rowname, subtype)) %>% 
+  group_by(name) %>% 
+  mutate(v = var(value)) %>% 
+  arrange(desc(v)) %>% 
+  ungroup() %>% 
+  select(-v) %>% 
+  pivot_wider(names_from = "name", values_from = "value") %>% 
+  select(1:2002)
 
-df %>% count(overall_survival)
-df_ready %>% map_dfr(~ sum(is.na(.)))
+df %>% 
+  mutate(subtype = fct_recode(subtype, "TRUE" = "CIMP", "FALSE" = "noCIMP")) %>% 
+  select(subtype, 1:101) %>% select(-rowname) %>% slice(1:170)
+
+new_data <- read_rds("~/Desktop/R/quatro/lecture_statistics/cimp.rds") %>% 
+  mutate(subtype = fct_recode(subtype, "TRUE" = "CIMP", "FALSE" = "noCIMP")) %>% 
+  select(subtype, 1:101) %>% select(-rowname) %>% slice(171:184)
+
+df %>% map_dfr(~ sum(is.na(.)))
 
 recipe <- recipe(overall_survival ~., data = df) %>%
   step_zv(all_predictors()) %>% 
@@ -41,7 +54,7 @@ plot(fit, data = "train", main = "Risk of CIMP")
 
 plot(fit, data = "test", main = "Risk of CIMP")
 
-#predict(fit, newdata = val)
+predict(fit, newdata = new_data, type = "both")
 
 plot(fit, what = "cues", data = "train")
 
