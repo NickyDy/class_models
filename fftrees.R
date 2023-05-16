@@ -3,62 +3,46 @@ library(tidymodels)
 library(themis)
 library(FFTrees)
 
-df <- read_rds("~/Desktop/R/quatro/lecture_statistics/cimp.rds") %>% relocate(subtype, .after = rowname)
-df <- df %>% pivot_longer(-c(rowname, subtype)) %>% 
-  group_by(name) %>% 
-  mutate(v = var(value)) %>% 
-  arrange(desc(v)) %>% 
-  ungroup() %>% 
-  select(-v) %>% 
-  pivot_wider(names_from = "name", values_from = "value") %>% 
-  select(1:2002)
+df <- read_csv("https://raw.githubusercontent.com/kitkat0891/debt/main/all.csv") %>% janitor::clean_names()
+df <- df %>% select(-c(in2y, x1, iso, year, country, region, sub_region, crisis)) %>% 
+  mutate(in1y = factor(in1y)) %>% 
+  mutate(in1y = fct_recode(in1y, "TRUE" = "1", "FALSE" = "0"))
 
-df %>% 
-  mutate(subtype = fct_recode(subtype, "TRUE" = "CIMP", "FALSE" = "noCIMP")) %>% 
-  select(subtype, 1:101) %>% select(-rowname) %>% slice(1:170)
+df %>% count(reer_percent_dev)
+glimpse(df)
+df %>% map_dfr(~ sum(is.na(.))) %>% View()
 
-new_data <- read_rds("~/Desktop/R/quatro/lecture_statistics/cimp.rds") %>% 
-  mutate(subtype = fct_recode(subtype, "TRUE" = "CIMP", "FALSE" = "noCIMP")) %>% 
-  select(subtype, 1:101) %>% select(-rowname) %>% slice(171:184)
-
-df %>% map_dfr(~ sum(is.na(.)))
-
-recipe <- recipe(overall_survival ~., data = df) %>%
-  step_zv(all_predictors()) %>% 
-  step_nzv(all_predictors()) %>% 
-  step_corr(all_predictors()) %>% 
-  step_normalize(all_predictors()) %>% 
-  step_downsample(overall_survival)
+recipe <- recipe(in1y ~., data = df) %>%
+  step_impute_knn(all_predictors()) %>% 
+  step_smote(in1y)
 recipe
 
 df_ready <- recipe %>% prep() %>% juice()
-glimpse(df_ready)
+View(df_ready)
 
 set.seed(2022)
-split <- initial_split(df, strata = subtype)
+split <- initial_split(df, strata = in1y)
 train <- training(split)
 test <- testing(split)
 
-train_last <- train %>% mutate(subtype = as.logical(subtype))
-test_last <- test %>% mutate(subtype = as.logical(subtype))
+train <- train %>% mutate(in1y = as.logical(in1y))
+test <- test %>% mutate(in1y = as.logical(in1y))
 
 fit <- FFTrees(
-  formula = subtype ~ .,
-  data = train_last,
-  data.test = test_last,
-  decision.labels = c("No CIMP", "CIMP"),
+  formula = in1y ~ .,
+  data = train,
+  data.test = test,
+  decision.labels = c("0", "1"),
   do.comp = T)
 fit
 
-plot(fit, data = "train", main = "Risk of CIMP")
+plot(fit, data = "train", main = "In 1y")
 
-plot(fit, data = "test", main = "Risk of CIMP")
+plot(fit, data = "test", main = "In 1y")
 
 predict(fit, newdata = new_data, type = "both")
 
 plot(fit, what = "cues", data = "train")
 
-library(gt)
 fit$competition$test %>%
-  mutate_if(is.numeric, round, 3) %>% 
-  gt()
+  mutate_if(is.numeric, round, 3)
