@@ -2,7 +2,9 @@ library(tidyverse)
 library(tidymodels)
 library(themis)
 
-df <- read_rds("subtype.rds")
+df <- read_csv("stroke.csv", col_types = "ififffffddff") %>% 
+  janitor::clean_names() %>% 
+  select(-id)
 
 df %>% count(churn)
 skimr::skim(df)
@@ -16,21 +18,22 @@ df %>% plot_bar(by  = "profit")
 df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 
 set.seed(2019)
-df_split <- initial_split(df, strata = subtype)
+df_split <- initial_split(df, strata = stroke)
 df_train <- training(df_split)
 df_test <- testing(df_split)
 
 # The validation set via K-fold cross validation of 5 validation folds
 set.seed(2020)
-folds <- vfold_cv(df_train, strata = subtype)
+folds <- vfold_cv(df_train, strata = stroke)
 
 # Recipe
-mars_rec <- recipe(subtype ~., data = df_train) %>%
-  step_zv(all_predictors()) %>% 
+mars_rec <- recipe(stroke ~., data = df_train) %>%
+  step_dummy(all_nominal_predictors()) %>% 
+  step_normalize(all_predictors()) %>% 
   step_nzv(all_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
   step_corr(all_predictors()) %>% 
-  step_log(base = exp(1), all_predictors()) %>% 
-  step_normalize(all_predictors())
+  step_smote(stroke)
 mars_rec
 
 mars_prep <- mars_rec %>% prep() %>% juice()

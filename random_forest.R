@@ -1,9 +1,14 @@
 library(tidyverse)
 library(tidymodels)
+library(themis)
 
-df <- read_csv("../../Downloads/mult.csv") %>% 
-	janitor::clean_names() %>% select(1:3, 6:8, 10:14) %>% 
-	mutate(y = as.factor(y))
+df <- read_csv("stroke.csv", col_types = "icicccccddcc") %>% 
+  janitor::clean_names() %>% 
+  mutate(hypertension = fct_recode(hypertension, "No" = "0", "Yes" = "1"),
+         heart_disease = fct_recode(heart_disease, "No" = "0", "Yes" = "1"),
+         stroke = fct_recode(stroke, "No" = "0", "Yes" = "1")) %>% 
+  select(-id) %>% 
+  na.omit()
 
 df %>% count(y)
 skimr::skim(df)
@@ -19,20 +24,20 @@ df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 #Modeling-------------------------------------------------
 # Set seed for reproducibility
 set.seed(2019)
-df_split <- initial_split(df, strata = y)
+df_split <- initial_split(df, strata = stroke)
 df_train <- training(df_split)
 df_test <- testing(df_split)
 
 # The validation set via K-fold cross validation of 5 validation folds
 set.seed(2020)
-folds <- vfold_cv(df_train, strata = y)
+folds <- vfold_cv(df_train, strata = stroke)
 
 # Recipe
-y_rec <- recipe(y ~., data = df_train) %>%
-	step_corr(all_numeric_predictors()) %>% 
-	step_normalize(all_numeric_predictors())
-y_rec
-train_prep <- y_rec %>% prep() %>% juice()
+rf_rec <- recipe(stroke ~., data = df_train) %>% 
+  step_downsample(stroke)
+rf_rec
+
+train_prep <- rf_rec %>% prep() %>% juice()
 glimpse(train_prep)
 
 # Control and metrics
@@ -50,7 +55,7 @@ rf_spec <-
 # Workflow
 rf_wflow <-
 	workflow() %>%
-	add_recipe(y_rec) %>% 
+	add_recipe(rf_rec) %>% 
 	add_model(rf_spec)
 
 # Grid
@@ -88,8 +93,9 @@ rf_test_res <- rf_wflow %>%
 	finalize_workflow(rf_best) %>%
 	last_fit(split = df_split, metrics = model_metrics)
 
-# Test Results
-rf_results%>%
+rf_results <- rf_test_res %>% collect_metrics()
+
+rf_results %>%
 	select(-.config, -.estimator) %>%
 	rename(metric = .metric,
 				 Test_set = .estimate) %>% 
@@ -97,7 +103,7 @@ rf_results%>%
 
 #RF
 collect_predictions(rf_test_res) %>%
-	conf_mat(y, .pred_class) %>%
+	conf_mat(stroke, .pred_class) %>%
 	pluck(1) %>%
 	as_tibble() %>%
 	ggplot(aes(Prediction, Truth, alpha = n)) +
@@ -111,25 +117,22 @@ collect_predictions(rf_test_res) %>%
 
 rf_test_res %>%
 	collect_predictions() %>%
-	roc_curve(y, .pred_1:.pred_4) %>%
-	ggplot(aes(x = 1 - specificity, y = sensitivity, color = .level)) +
-	geom_line(size = 1.5) +
-	geom_abline(
-		lty = 2, alpha = 0.5,
-		color = "gray50",
-		linewidth = 1.2) + 
-	labs(title = "Random Forest - ROC curve", subtitle = "AUC = ")
+	roc_curve(stroke, .pred_No) %>%
+	ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+	geom_line(linewidth = 0.5, color = "midnightblue") +
+	geom_abline(lty = 2, alpha = 0.5,	color = "gray50",	linewidth = 0.5) + 
+	labs(title = "Random Forest - ROC curve", subtitle = "AUC = 0.824")
 
 rf_test_res %>%  
 	collect_predictions() %>% 
-	ggplot() + geom_density(aes(x = .pred_1, fill = y), alpha = 0.5) +
+	ggplot() + geom_density(aes(x = .pred_Yes, fill = stroke), alpha = 0.5) +
 	labs(title = "Density function from probabilities - RF")
 
 rf_preds <- collect_predictions(rf_test_res) %>%
-	bind_cols(df_test %>% select(-y))
+	bind_cols(df_test %>% select(-stroke))
 rf_preds %>%
-	select(.pred_1, mv012, mv152, mv133, mv104) %>%
-	rename(prob = .pred_1) %>%
+	select(.pred_Yes, gender, age, hypertension, heart_disease) %>%
+	rename(prob = .pred_Yes) %>%
 	mutate(prob = prob *100) %>%
 	slice_max(prob, n = 10) %>%
 	group_by(prob) %>%
@@ -151,7 +154,7 @@ v <- rf_test_res %>%
 	extract_workflow() %>%
 	vetiver_model("defaulted")
 v
-augment(v, slice_sample(df_test, n = 10))
+augment(v, slice_sample(df_test, n = 10)) %>% select(12:14)
 
 library(plumber)
 pr() %>% 

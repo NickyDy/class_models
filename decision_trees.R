@@ -3,12 +3,15 @@ library(tidymodels)
 library(themis)
 library(rpart.plot)
 
-defaulted<-read_csv("~/Desktop/R/csv/bank_default.csv", col_types = "ffddf") %>% janitor::clean_names() %>% 
-	mutate(employed = fct_recode(employed, "Unemployed" = "0", "Employed" = "1"),
-				 defaulted = fct_recode(defaulted, "No Default" = "0", "Default" = "1"))
-df <- defaulted %>% select(-index)
+df <- read_csv("stroke.csv", col_types = "icicccccddcc") %>% 
+  janitor::clean_names() %>% 
+  mutate(hypertension = fct_recode(hypertension, "No" = "0", "Yes" = "1"),
+         heart_disease = fct_recode(heart_disease, "No" = "0", "Yes" = "1"),
+         stroke = fct_recode(stroke, "No" = "0", "Yes" = "1")) %>% 
+  select(-id) %>% 
+  na.omit()
 
-df %>% count(defaulted)
+df %>% count(stroke)
 skimr::skim(df)
 glimpse(df)
 diagnose_numeric(df) %>% flextable()
@@ -22,20 +25,18 @@ df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 #Modeling-------------------------------------------------
 # Set seed for reproducibility
 set.seed(2019)
-df_split <- initial_split(df, strata = defaulted)
+df_split <- initial_split(df, strata = stroke)
 df_train <- training(df_split)
 df_test <- testing(df_split)
 
 # The validation set via K-fold cross validation of 5 validation folds
 set.seed(2020)
-folds <- vfold_cv(df_train, v = 5, strata = defaulted)
+folds <- vfold_cv(df_train, v = 5, strata = stroke)
 
 # Recipe
-defaulted_rec <- recipe(defaulted ~., data = df_train) %>%
-	step_normalize(all_numeric_predictors()) %>%
-	step_dummy(all_nominal_predictors()) %>%
-	step_smote(defaulted)
-defaulted_rec
+dt_rec <- recipe(stroke ~., data = df_train) %>%
+	step_downsample(stroke)
+dt_rec
 #train_prep <- model_rec %>% prep() %>% juice()
 #glimpse(train_prep)
 
@@ -55,7 +56,7 @@ dt_spec <-
 # Workflow
 dt_wf <-
 	workflow() %>%
-	add_recipe(defaulted_rec) %>% 
+	add_recipe(dt_rec) %>% 
 	add_model(dt_spec) 
 
 # Grid
@@ -91,9 +92,6 @@ dt_test_results <- dt_wf %>%
 	last_fit(split = df_split, metrics = model_metrics)
 
 dt_results <- dt_test_results %>% collect_metrics()
-dt_results
-
-# DT Results
 dt_results%>%
 	select(-.config, -.estimator) %>%
 	rename(metric = .metric,
@@ -102,7 +100,7 @@ dt_results%>%
 
 #DT
 collect_predictions(dt_test_results) %>%
-	conf_mat(defaulted, .pred_class) %>%
+	conf_mat(stroke, .pred_class) %>%
 	pluck(1) %>%
 	as_tibble() %>%
 	ggplot(aes(Prediction, Truth, alpha = n)) +
@@ -117,18 +115,15 @@ collect_predictions(dt_test_results) %>%
 
 dt_test_results %>%
 	collect_predictions() %>%
-	roc_curve(defaulted, `.pred_No Default`) %>%
+	roc_curve(stroke, `.pred_No`) %>%
 	ggplot(aes(x = 1 - specificity, y = sensitivity)) +
-	geom_line(size = 0.5, color = "midnightblue") +
-	geom_abline(
-		lty = 2, alpha = 0.5,
-		color = "gray50",
-		size = 0.5) + 
-	labs(title = "DT - ROC curve", subtitle = "AUC = 0.888")
+	geom_line(linewidth = 0.5, color = "midnightblue") +
+	geom_abline(lty = 2, alpha = 0.5,	color = "gray50",	linewidth = 0.5) + 
+	labs(title = "DT - ROC curve", subtitle = "AUC = 0.814")
 
 dt_test_results %>%  
 	collect_predictions() %>% 
-	ggplot() + geom_density(aes(x = .pred_Default, fill = defaulted), alpha = 0.5) +
+	ggplot() + geom_density(aes(x = .pred_Yes, fill = stroke), alpha = 0.5) +
 	labs(title = "Density function from probabilities - DT")
 
 dt_test_results %>% 
@@ -138,18 +133,18 @@ dt_test_results %>%
 	labs(title = "Variable Importance - DT")
 
 dt_preds <- collect_predictions(dt_test_results) %>%
-	bind_cols(df_test %>% select(-defaulted))
+	bind_cols(df_test %>% select(-stroke))
 dt_preds %>%
-	select(.pred_Default, bank_balance, annual_salary) %>%
-	rename(prob = .pred_Default) %>%
+	select(.pred_Yes, gender, age) %>%
+	rename(prob = .pred_Yes) %>%
 	mutate(prob = prob *100) %>%
 	slice_max(prob, n = 10) %>%
-	group_by(bank_balance) %>%
+	group_by(gender) %>%
 	arrange(desc(prob))
 
 dt_test_results %>%
 	extract_fit_engine() %>%
-	rpart.plot(roundint = FALSE, cex = 0.6)
+	rpart.plot(roundint = FALSE, cex = 0.8)
 
 library(vip)
 dt_test_results %>%
@@ -165,7 +160,7 @@ dt_test_results %>%
 library(vetiver)
 v <- dt_test_results %>%
 	extract_workflow() %>%
-	vetiver_model("defaulted")
+	vetiver_model("stroke")
 v
 augment(v, slice_sample(df_test, n = 10))
 

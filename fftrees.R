@@ -3,43 +3,42 @@ library(tidymodels)
 library(themis)
 library(FFTrees)
 
-df <- read_csv("https://raw.githubusercontent.com/kitkat0891/debt/main/all.csv") %>% janitor::clean_names()
-df <- df %>% select(-c(in2y, x1, iso, year, country, region, sub_region, crisis)) %>% 
-  mutate(in1y = factor(in1y)) %>% 
-  mutate(in1y = fct_recode(in1y, "TRUE" = "1", "FALSE" = "0"))
+df <- read_csv("stroke.csv", col_types = "ififffffddff") %>% janitor::clean_names()
+df <- df %>% select(-c(id)) %>% 
+  mutate(stroke = fct_recode(stroke, "TRUE" = "1", "FALSE" = "0")) %>% na.omit()
 
-df %>% count(reer_percent_dev)
+df %>% count(stroke)
 glimpse(df)
 df %>% map_dfr(~ sum(is.na(.))) %>% View()
 
-recipe <- recipe(in1y ~., data = df) %>%
-  step_impute_knn(all_predictors()) %>% 
-  step_smote(in1y)
+recipe <- recipe(stroke ~., data = df) %>%
+  step_smote(stroke)
 recipe
 
 df_ready <- recipe %>% prep() %>% juice()
 View(df_ready)
 
 set.seed(2022)
-split <- initial_split(df, strata = in1y)
+split <- initial_split(df, strata = stroke)
 train <- training(split)
 test <- testing(split)
 
-train <- train %>% mutate(in1y = as.logical(in1y))
-test <- test %>% mutate(in1y = as.logical(in1y))
+train <- train %>% mutate(stroke = as.logical(stroke))
+test <- test %>% mutate(stroke = as.logical(stroke))
 
 fit <- FFTrees(
-  formula = in1y ~ .,
+  formula = stroke ~ .,
   data = train,
   data.test = test,
-  decision.labels = c("0", "1"),
+  decision.labels = c("FALSE", "TRUE"),
   do.comp = T)
 fit
 
-plot(fit, data = "train", main = "In 1y")
+plot(fit, data = "train", main = "Stroke")
 
-plot(fit, data = "test", main = "In 1y")
+plot(fit, data = "test", main = "Stroke")
 
+new_data <- sample(test, size = 10)
 predict(fit, newdata = new_data, type = "both")
 
 plot(fit, what = "cues", data = "train")
