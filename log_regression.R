@@ -30,9 +30,8 @@ log_rec <- recipe(subtype ~., data = df_train) %>%
 	step_zv(all_predictors()) %>% 
   step_nzv(all_predictors()) %>% 
   step_corr(all_predictors()) %>% 
-  step_log(base = exp(1), all_predictors()) %>% 
   step_normalize(all_predictors()) %>% 
-	step_smote(subtype)
+  step_smote(subtype)
 log_rec
 #train_prep <- model_rec %>% prep() %>% juice()
 #glimpse(train_prep)
