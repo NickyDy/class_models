@@ -2,38 +2,38 @@ library(tidyverse)
 library(tidymodels)
 library(themis)
 
-df <- read_csv("stroke.csv", col_types = "ififffffddff") %>% 
+df <- read_csv("purchase.csv", col_types = "ififffffddff") %>% 
   janitor::clean_names() %>% 
   select(-id)
 
-df %>% count(churn)
-skimr::skim(df)
-glimpse(df)
-diagnose_numeric(df) %>% flextable()
-plot_intro(df)
-plot_histogram(df)
-plot_correlate(df)
-df %>% plot_bar_category(top = 15)
-df %>% plot_bar(by  = "profit")
-df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
+# df %>% count(churn)
+# skimr::skim(df)
+# glimpse(df)
+# diagnose_numeric(df) %>% flextable()
+# plot_intro(df)
+# plot_histogram(df)
+# plot_correlate(df)
+# df %>% plot_bar_category(top = 15)
+# df %>% plot_bar(by  = "profit")
+# df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 
 set.seed(2019)
-df_split <- initial_split(df, strata = stroke)
+df_split <- initial_split(df, strata = purchase)
 df_train <- training(df_split)
 df_test <- testing(df_split)
 
 # The validation set via K-fold cross validation of 5 validation folds
 set.seed(2020)
-folds <- vfold_cv(df_train, strata = stroke)
+folds <- vfold_cv(df_train, strata = purchase)
 
 # Recipe
-mars_rec <- recipe(stroke ~., data = df_train) %>%
+mars_rec <- recipe(purchase ~ ., data = df_train) %>%
+  step_zv(all_numeric_predictors()) %>% 
+  step_nzv(all_numeric_predictors()) %>% 
+  step_normalize(all_numeric_predictors()) %>% 
+  step_corr(all_numeric_predictors()) %>% 
   step_dummy(all_nominal_predictors()) %>% 
-  step_normalize(all_predictors()) %>% 
-  step_nzv(all_predictors()) %>% 
-  step_zv(all_predictors()) %>% 
-  step_corr(all_predictors()) %>% 
-  step_smote(stroke)
+  step_smote(purchase)
 mars_rec
 
 mars_prep <- mars_rec %>% prep() %>% juice()
@@ -59,7 +59,7 @@ mars_wf <-
 	add_model(mars_spec)
 
 # Grid
-mars_grid <- grid_latin_hypercube(
+mars_grid <- grid_space_filling(
 	finalize(num_terms(), df_train),
 	prod_degree(),
 	prune_method(),
@@ -103,7 +103,7 @@ mars_results%>%
 
 #MARS
 collect_predictions(mars_test_results) %>%
-	conf_mat(churn, .pred_class) %>%
+	conf_mat(purchase, .pred_class) %>%
 	pluck(1) %>%
 	as_tibble() %>%
 	ggplot(aes(Prediction, Truth, alpha = n)) +
@@ -117,54 +117,47 @@ collect_predictions(mars_test_results) %>%
 
 mars_test_results %>%
 	collect_predictions() %>%
-	roc_curve(churn, .pred_churn) %>%
-	ggplot(aes(x = 1 - specificity, y = sensitivity)) +
-	geom_line(size = 1.5, color = "midnightblue") +
-	geom_abline(
-		lty = 2, alpha = 0.5,
-		color = "gray50",
-		size = 1.2) + 
+	roc_curve(purchase, .pred_No) %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(size = 0.5, color = "midnightblue") +
+  geom_abline(lty = 2, color = "black", linewidth = 0.5) +
+  theme(text = element_text(size = 16)) +
 	labs(title = "MARS - ROC curve", subtitle = "AUC = ")
 
 mars_test_results %>%  
 	collect_predictions() %>% 
-	ggplot() + geom_density(aes(x = .pred_churn, fill = churn), alpha = 0.5) +
+	ggplot() + geom_density(aes(x = .pred_Yes, fill = purchase), alpha = 0.5) +
 	labs(title = "Density function from probabilities - MARS")
 
-mars_test_results %>% 
-	pluck(".workflow", 1) %>%
-	extract_fit_parsnip() %>% 
-	vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
-	labs(title = "Variable Importance - MARS")
-
 mars_preds <- collect_predictions(mars_test_results) %>%
-	bind_cols(df_test %>% select(-churn))
+	bind_cols(df_test %>% select(-purchase))
 mars_preds %>%
-	select(.pred_churn, calls_outgoing_count, calls_outgoing_duration_max, 
-				 last_100_calls_outgoing_duration, user_no_outgoing_activity_in_days, sms_outgoing_inactive_days) %>%
-	rename(prob = .pred_churn) %>%
+	select(.pred_Yes, tv_total, you_tube_total, 
+	       print_total, flyers, year_of_birth) %>%
+	rename(prob = .pred_Yes) %>%
 	mutate(prob = prob *100) %>%
 	slice_max(prob, n = 10) %>%
-	group_by(calls_outgoing_count) %>%
-	arrange(desc(prob))
+	group_by(tv_total) %>%
+	arrange(-prob)
 
 library(vip)
-log_test_results %>%
+mars_test_results %>%
   extract_fit_engine() %>%
   vi()
 
-log_test_results %>% 
+mars_test_results %>% 
   pluck(".workflow", 1) %>%
   extract_fit_parsnip() %>% 
   vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
-  labs(title = "Variable Importance - Logistic Regression")
+  labs(title = "Variable Importance - MARS")
 
 library(vetiver)
-v <- log_test_results %>%
+v <- mars_test_results %>%
   extract_workflow() %>%
-  vetiver_model("defaulted")
+  vetiver_model("purchase")
 v
-augment(v, slice_sample(df_test, n = 10))
+augment(v, slice_sample(df_test, n = 10)) %>% 
+  select(purchase, everything())
 
 library(plumber)
 pr() %>% 

@@ -10,16 +10,16 @@ df <- read_csv("stroke.csv", col_types = "icicccccddcc") %>%
   select(-id) %>% 
   na.omit()
 
-df %>% count(stroke)
-skimr::skim(df)
-glimpse(df)
-diagnose_numeric(df) %>% flextable()
-plot_intro(df)
-plot_histogram(df)
-plot_correlate(df)
-df %>% plot_bar_category(top = 15)
-df %>% plot_bar(by  = "profit")
-df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
+# df %>% count(stroke)
+# skimr::skim(df)
+# glimpse(df)
+# diagnose_numeric(df) %>% flextable()
+# plot_intro(df)
+# plot_histogram(df)
+# plot_correlate(df)
+# df %>% plot_bar_category(top = 15)
+# df %>% plot_bar(by  = "profit")
+# df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 
 #Modeling-------------------------------------------------
 # Set seed for reproducibility

@@ -11,31 +11,31 @@ df <- read_csv("stroke.csv", col_types = "icicccccddcc") %>%
   select(-id) %>% 
   na.omit()
 
-df %>% count(stroke)
-skimr::skim(df)
-glimpse(df)
-diagnose_numeric(df) %>% flextable()
-plot_intro(df)
-plot_histogram(df)
-plot_correlate(df)
-df %>% plot_bar_category(top = 15)
-df %>% plot_bar(by  = "profit")
-df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
+# df %>% count(stroke)
+# skimr::skim(df)
+# glimpse(df)
+# diagnose_numeric(df) %>% flextable()
+# plot_intro(df)
+# plot_histogram(df)
+# plot_correlate(df)
+# df %>% plot_bar_category(top = 15)
+# df %>% plot_bar(by  = "profit")
+# df %>% select(profit, where(is.numeric)) %>% plot_boxplot(by = "profit")
 
 #Modeling-------------------------------------------------
 # Set seed for reproducibility
 set.seed(2019)
-df_split <- initial_split(df, strata = stroke)
+df_split <- initial_split(df, strata = purchase)
 df_train <- training(df_split)
 df_test <- testing(df_split)
 
 # The validation set via K-fold cross validation of 5 validation folds
 set.seed(2020)
-folds <- vfold_cv(df_train, v = 5, strata = stroke)
+folds <- vfold_cv(df_train, strata = purchase)
 
 # Recipe
-dt_rec <- recipe(stroke ~., data = df_train) %>%
-	step_downsample(stroke)
+dt_rec <- recipe(purchase ~ ., data = df_train) %>%
+	step_downsample(purchase)
 dt_rec
 #train_prep <- model_rec %>% prep() %>% juice()
 #glimpse(train_prep)
@@ -60,7 +60,7 @@ dt_wf <-
 	add_model(dt_spec) 
 
 # Grid
-dt_grid <- grid_latin_hypercube(
+dt_grid <- grid_space_filling(
 	cost_complexity(),
 	tree_depth(),
 	min_n(),
@@ -100,51 +100,43 @@ dt_results%>%
 
 #DT
 collect_predictions(dt_test_results) %>%
-	conf_mat(stroke, .pred_class) %>%
+	conf_mat(purchase, .pred_class) %>%
 	pluck(1) %>%
 	as_tibble() %>%
 	ggplot(aes(Prediction, Truth, alpha = n)) +
 	geom_tile(show.legend = FALSE) +
 	geom_text(aes(label = n), colour = "white", alpha = 1, size = 8) +
-	labs(
-		y = "Actual result",
-		x = "Predicted result",
-		fill = NULL,
+	labs(y = "Actual result",	x = "Predicted result",	fill = NULL,
 		title = "Confusion Matrix - DT") +
 	theme(text = element_text(size = 16))
 
 dt_test_results %>%
 	collect_predictions() %>%
-	roc_curve(stroke, `.pred_No`) %>%
-	ggplot(aes(x = 1 - specificity, y = sensitivity)) +
-	geom_line(linewidth = 0.5, color = "midnightblue") +
-	geom_abline(lty = 2, alpha = 0.5,	color = "gray50",	linewidth = 0.5) + 
-	labs(title = "DT - ROC curve", subtitle = "AUC = 0.814")
+	roc_curve(purchase, .pred_No) %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(linewidth = 0.5, color = "midnightblue") +
+  geom_abline(lty = 2, color = "black", linewidth = 0.5) +
+  theme(text = element_text(size = 16)) +
+	labs(title = "DT - ROC curve", subtitle = "AUC = 0.731")
 
 dt_test_results %>%  
 	collect_predictions() %>% 
-	ggplot() + geom_density(aes(x = .pred_Yes, fill = stroke), alpha = 0.5) +
+	ggplot() + geom_density(aes(x = .pred_Yes, fill = purchase), alpha = 0.5) +
 	labs(title = "Density function from probabilities - DT")
 
-dt_test_results %>% 
-	pluck(".workflow", 1) %>%
-	extract_fit_parsnip() %>% 
-	vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
-	labs(title = "Variable Importance - DT")
-
 dt_preds <- collect_predictions(dt_test_results) %>%
-	bind_cols(df_test %>% select(-stroke))
+	bind_cols(df_test %>% select(-purchase))
 dt_preds %>%
-	select(.pred_Yes, gender, age) %>%
-	rename(prob = .pred_Yes) %>%
-	mutate(prob = prob *100) %>%
+	select(prob = .pred_Yes, purchase, tv_total, you_tube_total, print_total,
+	       pinterest, you_tube_mobile, flyers) %>%
+	mutate(prob = prob * 100) %>%
 	slice_max(prob, n = 10) %>%
-	group_by(gender) %>%
-	arrange(desc(prob))
+	group_by(purchase) %>%
+	arrange(-prob)
 
 dt_test_results %>%
 	extract_fit_engine() %>%
-	rpart.plot(roundint = FALSE, cex = 0.8)
+	rpart.plot(roundint = FALSE, cex = 0.9, type = 0)
 
 library(vip)
 dt_test_results %>%
@@ -152,17 +144,21 @@ dt_test_results %>%
 	vi()
 
 dt_test_results %>% 
-	pluck(".workflow", 1) %>%
-	extract_fit_parsnip() %>% 
-	vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
-	labs(title = "Variable Importance - Logistic Regression")
+  pluck(".workflow", 1) %>%
+  extract_fit_parsnip() %>% 
+  vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  geom_text(aes(label = round(Importance, 0)), hjust = -0.2) +
+  theme(text = element_text(size = 16)) +
+  labs(title = "Variable Importance - DT")
 
 library(vetiver)
 v <- dt_test_results %>%
 	extract_workflow() %>%
-	vetiver_model("stroke")
+	vetiver_model("purchase")
 v
-augment(v, slice_sample(df_test, n = 10))
+augment(v, slice_sample(df_test, n = 10))%>% 
+  select(purchase, everything())
 
 library(plumber)
 pr() %>% 

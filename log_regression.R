@@ -31,7 +31,7 @@ log_rec <- recipe(subtype ~., data = df_train) %>%
   step_nzv(all_predictors()) %>% 
   step_corr(all_predictors()) %>% 
   step_normalize(all_predictors()) %>% 
-  step_smote(subtype)
+  step_downsample(subtype)
 log_rec
 #train_prep <- model_rec %>% prep() %>% juice()
 #glimpse(train_prep)
@@ -131,13 +131,12 @@ collect_predictions(log_test_results) %>%
 log_test_results %>%
 	collect_predictions() %>%
 	roc_curve(defaulted, `.pred_No Default`) %>%
-	ggplot(aes(x = 1 - specificity, y = sensitivity)) +
-	geom_line(size = 0.5, color = "midnightblue") +
-	geom_abline(
-		lty = 2, alpha = 0.5,
-		color = "gray50",
-		size = 1) + 
-	labs(title = "Logistic Regression - ROC curve", subtitle = "AUC = 0.954")
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(size = 0.5, color = "midnightblue") +
+  geom_abline(lty = 2, color = "black", linewidth = 0.5) +
+  theme(text = element_text(size = 16)) +
+	labs(title = "Logistic Regression - ROC curve", 
+	     subtitle = paste0("AUC = ", round(log_results$.estimate[4], 3)))
 
 library(vip)
 log_test_results %>%
@@ -148,6 +147,9 @@ log_test_results %>%
 	pluck(".workflow", 1) %>%
 	extract_fit_parsnip() %>% 
 	vip(geom = "col", num_features = 10, horiz = TRUE, aesthetics = list(size = 4)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  geom_text(aes(label = round(Importance, 3)), hjust = -0.2) +
+  theme(text = element_text(size = 16)) +
 	labs(title = "Variable Importance - Logistic Regression")
 
 library(vetiver)
